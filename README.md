@@ -1,55 +1,89 @@
-# Penetration Testing Report - Mediroza Hospital
+# Penetration Testing Report: Mediroza Hospital
+
+> **Disclaimer**: This penetration testing engagement was conducted in a controlled environment for educational purposes. All security testing on `medirozahospital.com` was authorized by Networkwalks. Unauthorized application of these security testing techniques against systems without explicit written consent is strictly prohibited.
+
+---
+
+## 📋 Table of Contents
+- [01. Executive Summary](#01-executive-summary)
+- [02. Scope and Methodology](#02-scope-and-methodology)
+- [03. Findings and Proof of Exploitation](#03-findings-and-proof-of-exploitation)
+- [04. Risk Rating](#04-risk-rating)
+- [05. Recommendations and Remediation](#05-recommendations-and-remediation)
 
 ---
 
 ## 01. Executive Summary
 
-This security assessment was performed by security researchers on behalf of **Networkwalks** in a strictly controlled educational environment[cite: 1]. The primary target of this engagement was **Mediroza Hospital** (`medirozahospital.com`).
+This security assessment was performed by security researchers on behalf of **Networkwalks** in a strictly controlled educational environment. The primary target of this engagement was **Mediroza Hospital** (`medirozahospital.com`).
 
 The objective was to evaluate the target's external and application attack surface, identify vulnerabilities, perform proof-of-concept exploitation, and provide actionable remediation strategies.
 
 ### Key Findings Summary
-* **Critical Unprotected Database Backup Leak**: Directory enumeration via `gobuster` and `robots.txt` disclosed an unlinked path `/old` containing `mediroza_db_backup_2019.sql`, exposing full staff Personally Identifiable Information (PII), monthly salary records, and shareholder structures.
-* **Critical SQL Injection (SQLi)**: Identified in the Patient Portal login interface (`/patient/login.php`). This flaw allows authentication bypass and direct access to protected patient medical records.
-* **High Weak Document Encryption**: Password-protected PDF lab reports were secured using weak passwords (`123456`), allowing rapid offline cracking.
-* **Low Information Disclosure**: The web server exposes specific technical banners (`LiteSpeed`, `x-turbo-charged-by` headers).
+* **Critical Unprotected Database Backup Leak**: Directory enumeration disclosed an unlinked path `/old` containing `mediroza_db_backup_2019.sql`, exposing full staff Personally Identifiable Information (PII), monthly salary records, and shareholder structures.
+* **Critical SQL Injection (SQLi)**: Identified in the Patient Portal login interface (`/patient/login.php`), enabling authentication bypass and unauthorized access to protected patient portal accounts.
+* **High Weak Password Protection**: Encrypted patient PDF reports utilized extremely weak passwords (`123456`), allowing rapid offline brute-force recovery.
+* **Low Information Disclosure**: Web server response headers reveal exact software details (`LiteSpeed`, `x-turbo-charged-by`).
 
 ---
 
 ## 02. Scope and Methodology
 
 ### Target Information
-* **Target Domain**: `medirozahospital.com`
-* **Target IP**: `199.188.201.16`[cite: 3]
-* **Testing Environment**: Kali Linux (`umar@kali`)[cite: 1, 2]
+| Attribute | Details |
+| :--- | :--- |
+| **Target Domain** | `medirozahospital.com` |
+| **Target IP** | `199.188.201.16` |
+| **Testing OS** | Kali Linux (`umar@kali`) |
 
 ### Tools Used
-* **Reconnaissance & Enumeration**: `whois`, `whatweb`, `ping`, `gobuster`, `robots.txt` analysis[cite: 1, 2, 3]
-* **Web Application Testing**: Google Chrome, SQL Injection manual testing[cite: 5, 6]
-* **Password Cracking**: `pdfcrack` with `rockyou.txt` wordlist[cite: 8, 9]
+* **Reconnaissance & Enumeration**: `whois`, `whatweb`, `ping`, `gobuster`, `robots.txt` analysis
+* **Web Exploitation**: Web Browser, Manual SQL Injection
+* **Password Cracking**: `pdfcrack` with `rockyou.txt` wordlist
 
 ### Methodology
-1. **Reconnaissance & Footprinting**: Enumerated domain records, checked host availability, fingerprinted server banners, and performed directory bruteforcing[cite: 1, 2, 3].
-2. **Vulnerability Assessment**: Evaluated application input fields for input validation defects and improper access control.
-3. **Exploitation**: Demonstrated authentication bypass via SQL Injection to access restricted patient files[cite: 6, 7].
-4. **Post-Exploitation Analysis**: Recovered encrypted file contents through offline dictionary attacks and analyzed exposed database dumps[cite: 8, 9].
+1. **Reconnaissance & Footprinting**: Domain discovery via `whois`, host availability checks using ICMP (`ping`), server technology identification via `whatweb`, and directory brute-forcing via `gobuster`.
+2. **Vulnerability Assessment**: Input field analysis on public forms to check for input sanitization, access controls, and exposure of unlinked sensitive assets.
+3. **Exploitation**: Authentication bypass via SQL Injection to access restricted medical records.
+4. **Post-Exploitation Analysis**: Verification of file security mechanisms on downloaded patient artifacts and analysis of exposed database dumps.
 
 ---
 
 ## 03. Findings and Proof of Exploitation
 
-### Step 1: Reconnaissance & Database Backup Discovery
+### Step 1: Initial Reconnaissance & Asset Discovery
 
 #### 1. Host Connectivity & Technology Fingerprinting
-Initial connectivity and environment checks were conducted using `ping google.com` and `whoami`[cite: 1]. A technology scan using `whatweb medirozahospital.com` revealed[cite: 3]:
-* **IP Address**: `199.188.201.16`[cite: 3]
-* **Web Server**: `LiteSpeed`[cite: 3]
-* **Headers**: `x-turbo-charged-by`[cite: 3]
+Initial connectivity testing verified active network routing and privilege levels on the assessment machine.
 
-![WhatWeb Output](Screenshot_2026-10-01_04_23_51.png)[cite: 3]
+![Terminal Environment Setup](Screenshot_2026-10-01_04_23_03.png)
+
+Querying the WHOIS database for `medirozahospital.com` returned no active registry match.
+
+```bash
+whois medirozahospital.com
+```
+
+![WHOIS Query Result](Screenshot_2026-10-01_04_23_03.png)
+
+Executing `whatweb` identified the primary web infrastructure:
+* **Target IP**: `199.188.201.16`
+* **Web Server**: `LiteSpeed`
+* **HTTP Status**: `301 Moved Permanently` (Redirecting to HTTPS), `403 Forbidden` on root directory requests.
+* **Custom Headers**: `x-turbo-charged-by`
+
+```bash
+whatweb medirozahospital.com
+```
+
+![WhatWeb Output](Screenshot_2026-10-01_04_23_51.png)
+
+---
 
 #### 2. Unlinked Directory & Backup File Discovery
 Executing directory brute-forcing with `gobuster` alongside manual review of `http://medirozahospital.com/robots.txt` identified an unlinked directory path `/old`. Accessing this path revealed a publicly accessible SQL dump file named `mediroza_db_backup_2019.sql`.
+
+---
 
 #### 3. Exfiltrated Database Backup Data
 
@@ -105,36 +139,100 @@ Executing directory brute-forcing with `gobuster` alongside manual review of `ht
 
 ### Step 2: Web Application Vulnerability Analysis & Exploitation
 
-#### 1. SQL Injection Identification
-Testing input parameters on `/patient/login.php` triggered a detailed database syntax error upon submitting a single quote (`'`):
+#### 1. SQL Injection Error Detection
+Navigating to `http://medirozahospital.com/patient/login.php` opened the **Patient Portal**. Submitting a single quote (`'`) into the **Username** field generated an unhandled database exception:
 
 > `Warning: mysqli_query(): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ''' at line 1`
 
-![SQL Error Message Exposed](Screenshot_2026-10-01_06_52_34.png)[cite: 5]
+This raw database error confirms the presence of **SQL Injection (SQLi)**.
 
-#### 2. Authentication Bypass Exploitation
-Inputting an injection payload altered the backend authentication query logic:
-* **Username Field**: `admin' -- `[cite: 6]
-* **Password Field**: Arbitrary text[cite: 6]
-
-![Authentication Bypass Payload](Screenshot_2026-10-01_06_52_51.png)[cite: 6]
-
-Submitting this payload bypassed credential validation entirely and provided access to `/patient/portal.php`[cite: 7].
-
-![Successful Patient Portal Access](Screenshot_2026-10-01_06_53_01.png)[cite: 7]
-
-The portal contained direct links to downloadable encrypted PDF reports[cite: 7]:
-1. `Pathology Report - S. Dlamini` (`Lab Ref LR-2024-1187`)[cite: 7]
-2. `Pathology Report - P. Reddy` (`Lab Ref LR-2024-1192`)[cite: 7]
-3. `Pathology Report - E. Thompson` (`Lab Ref LR-2024-1205`)[cite: 7]
+![SQL Error Message Exposed](Screenshot_2026-10-01_06_52_34.png)
 
 ---
 
-### Step 3: Document Encryption Analysis & Cracking
+#### 2. Authentication Bypass Exploitation
+By submitting a boolean SQL payload into the `Username` field, the backend authentication logic was manipulated:
 
-#### 1. Password Recovery via `pdfcrack`
-Attempting to open `patient_report_1.pdf` prompted a password challenge[cite: 10]. Using `pdfcrack` with the `rockyou.txt` wordlist recovered the key[cite: 8, 9]:
+* **Username Payload**: `admin' -- `
+* **Password**: `23232w2ds` (Arbitrary input)
+
+![Authentication Bypass Payload](Screenshot_2026-10-01_06_52_51.png)
+
+Submitting this payload bypassed authentication completely, providing access to `/patient/portal.php` ("My lab reports").
+
+![Successful Patient Portal Access](Screenshot_2026-10-01_06_53_01.png)
+
+The portal contained multiple downloadable patient files:
+1. `Pathology Report - S. Dlamini` (`Lab Ref LR-2024-1187`)
+2. `Pathology Report - P. Reddy` (`Lab Ref LR-2024-1192`)
+3. `Pathology Report - E. Thompson` (`Lab Ref LR-2024-1205`)
+
+---
+
+### Step 3: Document Security & Offline Password Cracking
+
+#### 1. Protected PDF Access Analysis
+Opening the downloaded file `patient_report_1.pdf` prompted a password requirement dialog.
+
+![PDF Password Prompt](Screenshot_2026-10-01_07_10_37.png)
+
+---
+
+#### 2. Offline Password Recovery (`pdfcrack`)
+`pdfcrack` was executed against `patient_report_1.pdf` using the standard `rockyou.txt` dictionary file:
 
 ```bash
 sudo apt update && sudo apt install pdfcrack
 pdfcrack -f patient_report_1.pdf -w /usr/share/wordlists/rockyou.txt
+```
+
+![PDFCrack Tool Installation](Screenshot_2026-10-01_07_10_20.png)
+
+The tool recovered the document password in seconds:
+
+```text
+found user-password: '123456'
+```
+
+![PDF Password Cracked Successfully](Screenshot_2026-10-01_07_10_27.png)
+
+---
+
+## 04. Risk Rating
+
+| Vulnerability Title | Affected Component | CVSS v3.1 Score | Risk Rating | Justification |
+| :--- | :--- | :--- | :--- | :--- |
+| **Unprotected Database Backup Leak** | `/old/mediroza_db_backup_2019.sql` | **9.8** | `CRITICAL` | Publicly exposes full employee PII, salary information, and corporate governance data without authentication. |
+| **SQL Injection (Auth Bypass)** | `/patient/login.php` | **9.8** | `CRITICAL` | Allows unauthenticated attackers to bypass login forms and access restricted application data. |
+| **Weak PDF Encryption Passwords** | Patient Lab Reports | **7.5** | `HIGH` | Protected health records use simple passwords (`123456`), allowing trivial offline cracking. |
+| **Verbose Database Error Output** | `/patient/login.php` | **5.3** | `MEDIUM` | MySQL exceptions reveal backend database structure, assisting in payload crafting. |
+| **Server Banner Disclosure** | Web Server Headers | **5.3** | `LOW` | Server headers expose underlying software (`LiteSpeed`), aiding technical fingerprinting. |
+
+---
+
+## 05. Recommendations and Remediation
+
+### 1. Secure Sensitive Files & Remove Unlinked Backups (Critical)
+* Immediately remove database backup files from publicly accessible web directories.
+* Restrict access to sensitive system paths using server access control rules and secure directory configurations.
+
+### 2. Implement Parameterized Queries (Critical)
+* Replace dynamic string concatenation in database calls with **Prepared Statements** using parameterized PDO or MySQLi queries.
+
+```php
+// Remediation Example (PHP MySQLi)
+$stmt = $conn->prepare("SELECT id, username FROM patients WHERE username = ? AND password = ?");
+$stmt->bind_param("ss", $username, $password);
+$stmt->execute();
+$result = $stmt->get_result();
+```
+
+### 3. Disable Public Database Errors (Medium)
+* Set `display_errors = Off` in `php.ini` for production environments. Implement custom error pages to prevent backend detail leakage.
+
+### 4. Enforce Strong File Security Standards (High)
+* Require robust, pseudo-random password generation for exported confidential documents.
+* Transition to token-based or multi-factor verified download mechanisms rather than static PDF password protection.
+
+### 5. Obfuscate Server Headers (Low)
+* Reconfigure the web server (`LiteSpeed`) to strip `Server` and custom descriptive response headers (`x-turbo-charged-by`).
